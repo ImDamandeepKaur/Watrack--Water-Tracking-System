@@ -18,7 +18,15 @@ def show_add():
         try:
             # Fetch previous data
             data = db.fetch_data(user_id)
-
+            #sort by date
+            data = sorted(data, key=lambda x: x[1])
+            
+            #prevent duplicate date
+            for row in data:
+                if row[1] == date:
+                    st.error("❌ Entry for this date already exists")
+                    st.stop()
+                    
             prev = None
             if len(data) > 0:
                 prev = data[-1][2]   # meter_reading column
