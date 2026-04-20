@@ -21,15 +21,30 @@ def show_add():
             #sort by date
             data = sorted(data, key=lambda x: x[1])
             
+            #region consistency
+            if len(data) > 0:
+                existing_region = data[0][4]
+                if existing_region != region:
+                    st.error(f"❌ User already assigned to {existing_region}")
+                    st.stop()
+                    
             #prevent duplicate date
             for row in data:
                 if row[1] == date:
                     st.error("❌ Entry for this date already exists")
                     st.stop()
                     
+            #prevent past entry
+            if len(data) > 0:
+                last_date = data[-1][1]
+                if date < last_date:
+                    st.error("❌ Cannot add past date entry")
+                    st.stop() 
+                    
             prev = None
             if len(data) > 0:
-                prev = data[-1][2]   # meter_reading column
+                prev = data[-1][2]
+                st.info(f"Last Reading: {prev} L")
 
             #validation
             if prev is not None and reading < prev:
