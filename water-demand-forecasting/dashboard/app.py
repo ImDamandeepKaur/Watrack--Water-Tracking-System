@@ -1,5 +1,5 @@
 import streamlit as st
-import pyscopg2
+import psycopg2
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -7,18 +7,18 @@ import pickle
 from xgboost import XGBRegressor
 import os
 import plotly.express as px
-import plotly.graph_objects as go
 
-# ---------------- PATH ----------------
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="Watrack", layout="wide")
+
+# ---------------- DB CONNECTION ----------------
+def get_db():
+    return psycopg2.connect(os.getenv("DATABASE_URL"))
+
+# ---------------- MODEL PATH ----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-DATA_DIR = os.path.join(BASE_DIR, "data")
 MODEL_DIR = os.path.join(BASE_DIR, "models")
-
-os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
-
-DB = os.path.join(DATA_DIR, "water_data.db")
 MODEL_FILE = os.path.join(MODEL_DIR, "xgb_model.pkl")
 
 # ---------------- LOAD MODEL ----------------
@@ -29,13 +29,11 @@ def load_model():
             return pickle.load(f)
     return None
 
-# ---------------- DB ----------------
-def get_db():
-    return psycopg2.connect(os.getenv("DATABASE_URL"))
-
+# ---------------- INIT DB ----------------
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS water_usage (
             user_id INTEGER,
@@ -45,30 +43,23 @@ def init_db():
             region TEXT
         )
     """)
+
     conn.commit()
     conn.close()
 
 init_db()
 
 # ---------------- UI ----------------
-st.set_page_config(page_title="Watrack", layout="wide")
-
 st.title("💧 Watrack - Water Tracking System")
 
-st.markdown("""
-<h3 style='color:#4CAF50;'>Smart Water Consumption Monitoring & Prediction</h3>
-""", unsafe_allow_html=True)
-
-# Sidebar
 st.sidebar.title("💧 Menu")
 menu = st.sidebar.radio(
     "Navigate",
     ["Dashboard", "Add Reading", "Train Model", "Prediction"]
 )
 
-# Inputs
+# ---------------- INPUT ----------------
 user_id = st.number_input("User ID", min_value=1)
-reading = st.number_input("Today's Meter Reading", min_value=0.0)
 region = st.selectbox("Region", ["North","South","East","West"])
 
 # ---------------- LOAD DATA ----------------
@@ -76,7 +67,7 @@ conn = get_db()
 df = pd.read_sql(
     "SELECT * FROM water_usage WHERE user_id=%s ORDER BY date",
     conn,
-    (user_id,)
+    params=(user_id,)
 )
 conn.close()
 
@@ -89,34 +80,36 @@ if menu == "Dashboard":
         col1.metric("💧 Last Usage", f"{df.iloc[-1]['daily_usage']:.0f} L")
         col2.metric("📊 Avg Usage", f"{df['daily_usage'].mean():.0f} L")
 
-        st.subheader("📈 Usage Trend")
-        chart_df = df[df["daily_usage"] > 0].copy()
+        chart_df = df.copy()
         chart_df['date'] = pd.to_datetime(chart_df['date'])
 
         fig = px.line(chart_df, x='date', y='daily_usage',
                       title="Water Usage Trend", markers=True)
-        st.plotly_chart(fig, use_container_width=True)
+
+        st.plotly_chart(fig)
 
         if df.iloc[-1]['daily_usage'] > df['daily_usage'].mean():
             st.error("⚠️ High consumption today")
         else:
             st.success("✅ Normal usage")
     else:
-        st.info("No data available")
+        st.warning("No data available. Add readings first.")
 
 # ---------------- ADD READING ----------------
 if menu == "Add Reading":
     st.subheader("➕ Add Reading")
 
+    reading = st.number_input("Meter Reading", min_value=0.0)
+    selected_date = st.date_input("Select Date")
+    today = selected_date.strftime('%Y-%m-%d')
+
     if st.button("Add Reading"):
         conn = get_db()
         cursor = conn.cursor()
 
-        today = datetime.now().strftime('%Y-%m-%d')
-
         cursor.execute("""
             SELECT meter_reading FROM water_usage
-            WHERE user_id=? ORDER BY date DESC LIMIT 1
+            WHERE user_id=%s ORDER BY date DESC LIMIT 1
         """, (user_id,))
         prev = cursor.fetchone()
 
@@ -133,16 +126,12 @@ if menu == "Add Reading":
         conn.commit()
         conn.close()
 
-        st.success(f"Usage: {daily_usage:.2f} L")
-
-        avg = df["daily_usage"].mean() if len(df) > 0 else 400
-        if daily_usage > avg * 1.5:
-            st.warning("⚠️ Unusually high usage detected!")
+        st.success(f"Usage added: {daily_usage:.2f} L")
 
 # ---------------- TRAIN MODEL ----------------
 def train_model():
     if len(df) < 5:
-        st.warning("Not enough data!")
+        st.warning("Add more data to train model")
         return
 
     temp = df.copy()
@@ -166,73 +155,49 @@ def train_model():
     with open(MODEL_FILE, "wb") as f:
         pickle.dump(model, f)
 
-    st.success("✅ Model trained successfully!")
+    st.success("Model trained successfully!")
 
 if menu == "Train Model":
     st.subheader("🤖 Train Model")
 
     if st.button("Train Model"):
-        with st.spinner("Training model..."):
+        with st.spinner("Training..."):
             train_model()
 
 # ---------------- PREDICT ----------------
 if menu == "Prediction":
-    st.subheader("🔮 Predict Tomorrow Usage")
+    st.subheader("🔮 Prediction")
 
     if st.button("Predict Tomorrow"):
-        try:
+        model = load_model()
+
+        if model is None:
+            st.warning("Model not found. Training automatically...")
+            train_model()
             model = load_model()
 
-            if model is None:
-                st.error("⚠️ Train model first!")
-                st.stop()
+        if len(df) < 2:
+            st.warning("Not enough data")
+            st.stop()
 
-            if len(df) < 2:
-                st.warning("Not enough data for prediction!")
-                st.stop()
+        last = df.iloc[-1]
+        lag1 = last['daily_usage']
+        lag2 = df.iloc[-2]['daily_usage']
 
-            with st.spinner("Predicting..."):
+        region_map = {'North':0,'South':1,'East':2,'West':3}
 
-                last = df.iloc[-1]
-                lag1 = last['daily_usage']
-                lag2 = df.iloc[-2]['daily_usage']
+        X = np.array([[datetime.now().weekday(),
+                       region_map[last['region']],
+                       lag1, lag2]])
 
-                region_map = {'North':0,'South':1,'East':2,'West':3}
+        pred = model.predict(X)[0]
 
-                X = np.array([[datetime.now().weekday(),
-                               region_map[last['region']],
-                               lag1, lag2]])
+        st.success(f"💧 Tomorrow Usage: {pred:.2f} L")
 
-                pred = model.predict(X)[0]
-
-            st.success(f"💧 Tomorrow Usage: {pred:.2f} L")
-
-            # Gauge Chart
-            fig = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=pred,
-                title={'text': "Predicted Usage"},
-                gauge={
-                    'axis': {'range': [0, 1000]},
-                    'steps': [
-                        {'range': [0, 400], 'color': "green"},
-                        {'range': [400, 700], 'color': "yellow"},
-                        {'range': [700, 1000], 'color': "red"},
-                    ]
-                }
-            ))
-
-            st.plotly_chart(fig)
-
-            diff = pred - df.iloc[-1]['daily_usage']
-
-            if diff > 0:
-                st.info(f"📈 Expected increase of {diff:.0f} L")
-            else:
-                st.info(f"📉 Expected decrease of {abs(diff):.0f} L")
-
-        except Exception as e:
-            st.error(f"Error: {e}")
+        if pred > 600:
+            st.warning("⚠️ High usage expected!")
+        else:
+            st.success("Normal usage expected")
 
 # ---------------- FOOTER ----------------
 st.markdown("---")
