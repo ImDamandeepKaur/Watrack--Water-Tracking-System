@@ -22,17 +22,32 @@ def show_predict():
         "user_id","date","meter_reading","daily_usage","region"
     ])
 
-    if st.button("Predict"):
-        if df['daily_usage'].sum() == 0:
-            st.error("No valid usage data. Add readings first.")
-            st.stop()
-            
-        model = model_obj.load()
+    # convert date
+    df['date'] = pd.to_datetime(df['date'])
 
-        if model is None:
-            model_obj.train(df)
+    #sort data
+    df = df.sort_values(by='date')
+
+    if st.button("Predict"):
+
+        try:
+            #validate data
+            if df['daily_usage'].sum() == 0:
+                st.error("No valid usage data. Add readings first.")
+                st.stop()
+
+            #load model
             model = model_obj.load()
 
-        pred = model_obj.predict(model, df)
+            #train if not exists
+            if model is None:
+                model_obj.train(df)
+                model = model_obj.load()
 
-        st.success(f"Prediction: {pred:.2f}")
+            #predict
+            pred = model_obj.predict(model, df)
+
+            st.success(f"💧 Predicted Usage: {pred:.2f} L")
+
+        except Exception as e:
+            st.error(f"Prediction failed: {str(e)}")
