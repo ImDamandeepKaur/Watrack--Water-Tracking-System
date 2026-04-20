@@ -21,8 +21,7 @@ MODEL_DIR = os.path.join(BASE_DIR, "models")
 os.makedirs(MODEL_DIR, exist_ok=True)
 MODEL_FILE = os.path.join(MODEL_DIR, "xgb_model.pkl")
 
-# ---------------- LOAD MODEL ----------------
-@st.cache_resource
+# ---------------- LOAD MODEL (NO CACHE NOW) ----------------
 def load_model():
     if os.path.exists(MODEL_FILE):
         with open(MODEL_FILE, "rb") as f:
@@ -169,12 +168,18 @@ if menu == "Prediction":
     st.subheader("🔮 Prediction")
 
     if st.button("Predict Tomorrow"):
+
         model = load_model()
 
+        # AUTO TRAIN FIX
         if model is None:
             st.warning("Model not found. Training automatically...")
             train_model()
             model = load_model()
+
+        if model is None:
+            st.error("Still no model available. Add more data and train.")
+            st.stop()
 
         if len(df) < 2:
             st.warning("Not enough data")
