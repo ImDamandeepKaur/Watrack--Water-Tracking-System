@@ -10,7 +10,12 @@ import os
 # ---------------- PATH ----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "..", "data")
-MODEL_DIR = os.path.join(BASE_DIR, "..", "models")
+@st.cache_resource
+def load_model():
+    if os.path.exists(MODEL_FILE):
+        with open(MODEL_FILE, "rb") as f:
+            return pickle.load(f)
+    return None
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
@@ -41,6 +46,12 @@ init_db()
 
 # ---------------- UI ----------------
 st.title("💧 Watrack- Water Tracking System")
+st.sidebar.title("💧 Watrack Menu")
+
+menu = st.sidebar.radio(
+    "Navigate",
+    ["Dashboard", "Add Reading", "Train Model", "Prediction"]
+)
 
 user_id = st.number_input("User ID", min_value=1)
 reading = st.number_input("Today's Meter Reading", min_value=0.0)
@@ -142,33 +153,38 @@ def train_model():
     st.success("Model trained!")
 
 if st.button("Train Model"):
-    train_model()
+    with st.spinner("Training model..."):
+        train_model()
 
 # ---------------- PREDICT ----------------
 if st.button("Predict Tomorrow"):
     try:
-        with open(MODEL_FILE, "rb") as f:
-            model = pickle.load(f)
+        model = load_model()
+
+        if model is None:
+            st.error("⚠️ Train model first!")
+            st.stop()
 
         if len(df) < 2:
             st.warning("Not enough data for prediction!")
             st.stop()
 
-        last = df.iloc[-1]
-        lag1 = last['daily_usage']
-        lag2 = df.iloc[-2]['daily_usage']
+        with st.spinner("Predicting..."):
 
-        region_map = {'North':0,'South':1,'East':2,'West':3}
+            last = df.iloc[-1]
+            lag1 = last['daily_usage']
+            lag2 = df.iloc[-2]['daily_usage']
 
-        X = np.array([[datetime.now().weekday(),
-                       region_map[last['region']],
-                       lag1, lag2]])
+            region_map = {'North':0,'South':1,'East':2,'West':3}
 
-        pred = model.predict(X)[0]
+            X = np.array([[datetime.now().weekday(),
+                           region_map[last['region']],
+                           lag1, lag2]])
+
+            pred = model.predict(X)[0]
 
         st.success(f"Tomorrow Usage: {pred:.2f} L")
 
-        # ✅ smart message
         diff = pred - df.iloc[-1]['daily_usage']
 
         if diff > 0:
@@ -179,5 +195,5 @@ if st.button("Predict Tomorrow"):
         if pred > 600:
             st.warning("⚠️ High usage expected!")
 
-    except:
-        st.error("Train model first!")
+    except Exception as e:
+        st.error(f"Error: {e}")
