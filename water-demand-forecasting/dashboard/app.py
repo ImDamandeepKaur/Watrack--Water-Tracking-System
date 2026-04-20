@@ -1,5 +1,5 @@
 import streamlit as st
-import sqlite3
+import pyscopg2
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -31,7 +31,7 @@ def load_model():
 
 # ---------------- DB ----------------
 def get_db():
-    return sqlite3.connect(DB, check_same_thread=False)
+    return psycopg2.connect(os.getenv("DATABASE_URL"))
 
 def init_db():
     conn = get_db()
@@ -74,9 +74,9 @@ region = st.selectbox("Region", ["North","South","East","West"])
 # ---------------- LOAD DATA ----------------
 conn = get_db()
 df = pd.read_sql(
-    "SELECT * FROM water_usage WHERE user_id=? ORDER BY date",
+    "SELECT * FROM water_usage WHERE user_id=%s ORDER BY date",
     conn,
-    params=(user_id,)
+    (user_id,)
 )
 conn.close()
 
@@ -127,7 +127,7 @@ if menu == "Add Reading":
         daily_usage = reading - prev[0] if prev else 0
 
         cursor.execute("""
-            INSERT INTO water_usage VALUES (?,?,?,?,?)
+            INSERT INTO water_usage VALUES (%s,%s,%s,%s,%s)
         """, (user_id, today, reading, daily_usage, region))
 
         conn.commit()
