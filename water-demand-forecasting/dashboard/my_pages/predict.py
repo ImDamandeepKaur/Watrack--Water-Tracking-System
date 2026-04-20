@@ -23,7 +23,10 @@ def show_predict():
     ])
 
     if st.button("Predict"):
-
+        if df['daily_usage'].sum() == 0:
+            st.error("No valid usage data. Add readings first.")
+            st.stop()
+            
         model = model_obj.load()
 
         if model is None:
