@@ -12,17 +12,17 @@ page = st.sidebar.radio(
 )
 
 if page == "Dashboard":
-    from pages.dashboard import show_dashboard
+    from my_pages.dashboard import show_dashboard
     show_dashboard()
 
 elif page == "Add Reading":
-    from pages.add_reading import show_add
+    from my_pages.add_reading import show_add
     show_add()
 
 elif page == "Train Model":
-    from pages.train import show_train
+    from my_pages.train import show_train
     show_train()
 
 elif page == "Prediction":
-    from pages.predict import show_predict
+    from my_pages.predict import show_predict
     show_predict()
