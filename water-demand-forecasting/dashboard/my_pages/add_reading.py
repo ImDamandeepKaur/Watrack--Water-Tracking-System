@@ -16,7 +16,28 @@ def show_add():
     if st.button("Add"):
 
         try:
-            db.insert_data(user_id, date, reading, 0, region)
-            st.success("Added successfully")
+            # Fetch previous data
+            data = db.fetch_data(user_id)
+
+            prev = None
+            if len(data) > 0:
+                prev = data[-1][2]   # meter_reading column
+
+            #validation
+            if prev is not None and reading < prev:
+                st.error("❌ Reading cannot be less than previous")
+                st.stop()
+
+            # calculate usage
+            usage = reading - prev if prev else 0
+
+            #insert correct data
+            db.insert_data(user_id, date, reading, usage, region)
+
+            st.success(f"Usage added: {usage:.2f} L")
+
+            #refresh dashboard
+            st.rerun()
+
         except Exception as e:
             st.error(str(e))
